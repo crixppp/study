@@ -17,7 +17,9 @@ const Modes = Object.freeze({
 const STORAGE_KEY = "studypie-state";
 const RADIUS = 90;
 const CIRCUMFERENCE = 2 * Math.PI * RADIUS;
-const STUDY_START_OFFSET = CIRCUMFERENCE * 0.5; // 180° (left)
+const STUDY_BASE_ROTATION_DEG = 90;
+const CIRCUMFERENCE_STR = CIRCUMFERENCE.toFixed(3);
+const STUDY_ROTATION = `rotate(${STUDY_BASE_ROTATION_DEG}deg)`;
 const FRAME_CLAMP_MS = 200;
 const BASE_LERP = 0.25;
 
@@ -189,18 +191,17 @@ function updateDisplayRatio(targetRatio, delta) {
 
 function renderRing(ratio) {
   const clampedRatio = Math.min(1, Math.max(0, ratio));
-  const studyLength = clampedRatio <= 0 ? 0 : clampedRatio * CIRCUMFERENCE;
-  const breakLength = clampedRatio >= 1 ? 0 : (1 - clampedRatio) * CIRCUMFERENCE;
+  const studyLength = clampedRatio * CIRCUMFERENCE;
+  const breakLength = (1 - clampedRatio) * CIRCUMFERENCE;
 
-  const studyDash = studyLength > 0 ? `${studyLength} ${CIRCUMFERENCE}` : `0 ${CIRCUMFERENCE}`;
-  const breakDash = breakLength > 0 ? `${breakLength} ${CIRCUMFERENCE}` : `0 ${CIRCUMFERENCE}`;
+  elements.ringStudy.style.transform = STUDY_ROTATION;
+  elements.ringStudy.style.strokeDasharray = CIRCUMFERENCE_STR;
+  elements.ringStudy.style.strokeDashoffset = (CIRCUMFERENCE - studyLength).toFixed(3);
 
-  elements.ringStudy.style.strokeDasharray = studyDash;
-  elements.ringStudy.style.strokeDashoffset = STUDY_START_OFFSET;
-
-  const breakOffset = (STUDY_START_OFFSET + studyLength) % CIRCUMFERENCE;
-  elements.ringBreak.style.strokeDasharray = breakDash;
-  elements.ringBreak.style.strokeDashoffset = breakOffset;
+  const breakRotation = STUDY_BASE_ROTATION_DEG + clampedRatio * 360;
+  elements.ringBreak.style.transform = `rotate(${breakRotation}deg)`;
+  elements.ringBreak.style.strokeDasharray = CIRCUMFERENCE_STR;
+  elements.ringBreak.style.strokeDashoffset = (CIRCUMFERENCE - breakLength).toFixed(3);
 }
 
 function updateTotals(studyMs, breakMs) {
@@ -375,8 +376,11 @@ function resetAll() {
 }
 
 function handleKeydown(event) {
-  const isTypingTarget = event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement || event.target instanceof HTMLSelectElement;
-  if (isTypingTarget) {
+  if (event.metaKey || event.ctrlKey || event.altKey) {
+    return;
+  }
+
+  if (shouldSkipGlobalHotkey(event.target)) {
     return;
   }
 
@@ -404,6 +408,31 @@ function handleKeydown(event) {
     default:
       break;
   }
+}
+
+function shouldSkipGlobalHotkey(target) {
+  if (!(target instanceof Element)) {
+    return false;
+  }
+
+  const interactiveSelector =
+    "input, textarea, select, button, a[href], [role='button'], [role='link']";
+  if (target.closest(interactiveSelector)) {
+    return true;
+  }
+
+  let current = target;
+  while (current) {
+    if (current.isContentEditable) {
+      return true;
+    }
+    if (current.hasAttribute("tabindex") && current.tabIndex >= 0) {
+      return true;
+    }
+    current = current.parentElement;
+  }
+
+  return false;
 }
 
 function handleVisibilityChange() {
