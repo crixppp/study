@@ -375,8 +375,11 @@ function resetAll() {
 }
 
 function handleKeydown(event) {
-  const isTypingTarget = event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement || event.target instanceof HTMLSelectElement;
-  if (isTypingTarget) {
+  if (event.metaKey || event.ctrlKey || event.altKey) {
+    return;
+  }
+
+  if (shouldSkipGlobalHotkey(event.target)) {
     return;
   }
 
@@ -404,6 +407,31 @@ function handleKeydown(event) {
     default:
       break;
   }
+}
+
+function shouldSkipGlobalHotkey(target) {
+  if (!(target instanceof Element)) {
+    return false;
+  }
+
+  const interactiveSelector =
+    "input, textarea, select, button, a[href], [role='button'], [role='link']";
+  if (target.closest(interactiveSelector)) {
+    return true;
+  }
+
+  let current = target;
+  while (current) {
+    if (current.isContentEditable) {
+      return true;
+    }
+    if (current.hasAttribute("tabindex") && current.tabIndex >= 0) {
+      return true;
+    }
+    current = current.parentElement;
+  }
+
+  return false;
 }
 
 function handleVisibilityChange() {
