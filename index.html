@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>StudyPie</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <div class="app" data-testid="app-root">
+      <header class="app__header">
+        <h1 class="app__logo">StudyPie</h1>
+      </header>
+      <main class="app__main" role="main">
+        <section class="board" aria-labelledby="totals-heading">
+          <h2 id="totals-heading" class="sr-only">Time overview</h2>
+          <div class="total total--break" id="breakTotal" data-testid="break-total">Break time: 00:00:00</div>
+          <div class="ring-block">
+            <div class="ring-stack">
+              <svg id="ringSvg" data-testid="ring-svg" viewBox="0 0 220 220" role="presentation" aria-hidden="true">
+                <circle class="ring-track" cx="110" cy="110" r="90"></circle>
+                <circle id="ringBreak" data-testid="ring-break" class="ring-segment ring-segment--break" cx="110" cy="110" r="90"></circle>
+                <circle id="ringStudy" data-testid="ring-study" class="ring-segment ring-segment--study" cx="110" cy="110" r="90"></circle>
+              </svg>
+              <div class="timer" id="timer" data-testid="timer" role="timer" aria-live="polite">00:00:00</div>
+            </div>
+          </div>
+          <div class="total total--study" id="studyTotal" data-testid="study-total">Study time: 00:00:00</div>
+        </section>
+        <section class="controls" aria-label="Timer controls">
+          <button id="btnStudy" data-testid="btn-study" class="control-btn control-btn--primary" type="button">Start Study</button>
+          <button id="btnBreak" data-testid="btn-break" class="control-btn" type="button">Start Break</button>
+          <button id="btnPause" data-testid="btn-pause" class="control-btn" type="button">Pause/Resume</button>
+          <button id="btnReset" data-testid="btn-reset" class="control-btn control-btn--danger" type="button">Reset</button>
+        </section>
+      </main>
+    </div>
+    <script src="app.js" defer></script>
+  </body>
+</html>

@@ -1,0 +1,437 @@
+/*
+Non-negotiables:
+- Use requestAnimationFrame + performance.now(); compute elapsed from timestamps.
+- Interpolate visible ring proportions for smoothness; underlying totals remain exact.
+- Handle tab visibility changes; clamp dt to avoid stutters.
+- Buttons use transform/box-shadow for feedback; accessible focus rings.
+- Honour prefers-reduced-motion.
+*/
+
+const Modes = Object.freeze({
+  IDLE: "idle",
+  STUDY: "study",
+  BREAK: "break",
+  PAUSED: "paused",
+});
+
+const STORAGE_KEY = "studypie-state";
+const RADIUS = 90;
+const CIRCUMFERENCE = 2 * Math.PI * RADIUS;
+const STUDY_BASE_ROTATION_DEG = 90;
+const CIRCUMFERENCE_STR = CIRCUMFERENCE.toFixed(3);
+const STUDY_ROTATION = `rotate(${STUDY_BASE_ROTATION_DEG}deg)`;
+const FRAME_CLAMP_MS = 200;
+const BASE_LERP = 0.25;
+
+const elements = {
+  ringStudy: document.getElementById("ringStudy"),
+  ringBreak: document.getElementById("ringBreak"),
+  timer: document.getElementById("timer"),
+  studyTotal: document.getElementById("studyTotal"),
+  breakTotal: document.getElementById("breakTotal"),
+  btnStudy: document.getElementById("btnStudy"),
+  btnBreak: document.getElementById("btnBreak"),
+  btnPause: document.getElementById("btnPause"),
+  btnReset: document.getElementById("btnReset"),
+};
+
+const defaultState = {
+  mode: Modes.IDLE,
+  studyTotalMs: 0,
+  breakTotalMs: 0,
+  sessionStart: 0,
+  carriedSessionMs: 0,
+  resumeMode: null,
+};
+
+let state = { ...defaultState };
+let displayStudyRatio = 0.5;
+let lastTimestamp = null;
+let sessionStartPerf = 0;
+let lastTimerRenderSecond = null;
+let lastPersistWall = 0;
+let prefersReducedMotion = window.matchMedia
+  ? window.matchMedia("(prefers-reduced-motion: reduce)")
+  : { matches: false };
+
+const motionListener = () => {
+  // Sync immediately when preference changes so smoothing respects it.
+  if (prefersReducedMotion.matches) {
+    displayStudyRatio = getTargetStudyRatio({ wallNow: Date.now() });
+    renderRing(displayStudyRatio);
+  }
+};
+
+if (typeof prefersReducedMotion.addEventListener === "function") {
+  prefersReducedMotion.addEventListener("change", motionListener);
+} else if (typeof prefersReducedMotion.addListener === "function") {
+  prefersReducedMotion.addListener(motionListener);
+}
+
+loadState();
+applyModeClass();
+renderStatic();
+attachListeners();
+requestAnimationFrame(loop);
+
+function attachListeners() {
+  elements.btnStudy.addEventListener("click", () => startSession(Modes.STUDY));
+  elements.btnBreak.addEventListener("click", () => startSession(Modes.BREAK));
+  elements.btnPause.addEventListener("click", togglePause);
+  elements.btnReset.addEventListener("click", requestReset);
+
+  window.addEventListener("keydown", handleKeydown);
+  document.addEventListener("visibilitychange", handleVisibilityChange);
+}
+
+function loadState() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (raw) {
+      const data = JSON.parse(raw);
+      const sanitized = {
+        mode: Object.values(Modes).includes(data.mode) ? data.mode : Modes.IDLE,
+        studyTotalMs: Number.isFinite(data.studyTotalMs) ? Math.max(0, data.studyTotalMs) : 0,
+        breakTotalMs: Number.isFinite(data.breakTotalMs) ? Math.max(0, data.breakTotalMs) : 0,
+        sessionStart: Number.isFinite(data.sessionStart) ? data.sessionStart : 0,
+        carriedSessionMs: Number.isFinite(data.carriedSessionMs) ? Math.max(0, data.carriedSessionMs) : 0,
+        resumeMode: Object.values(Modes).includes(data.resumeMode) ? data.resumeMode : null,
+      };
+
+      state = { ...defaultState, ...sanitized };
+
+      if (state.mode === Modes.PAUSED && !state.resumeMode) {
+        state.resumeMode = Modes.STUDY;
+      }
+
+      if (isActiveMode(state.mode)) {
+        // Ensure sessionStart is valid; if not, reset to now.
+        if (!state.sessionStart) {
+          const now = Date.now();
+          state.sessionStart = now;
+        }
+        syncSessionStartPerf();
+      }
+    }
+  } catch (error) {
+    console.error("Failed to parse saved StudyPie state", error);
+    state = { ...defaultState };
+  }
+
+  const total = state.studyTotalMs + state.breakTotalMs;
+  displayStudyRatio = total > 0 ? state.studyTotalMs / total : 0.5;
+}
+
+function syncSessionStartPerf() {
+  if (isActiveMode(state.mode)) {
+    const elapsed = Math.max(0, Date.now() - state.sessionStart);
+    sessionStartPerf = performance.now() - elapsed;
+  } else {
+    sessionStartPerf = 0;
+  }
+}
+
+function loop(now) {
+  if (lastTimestamp === null) {
+    lastTimestamp = now;
+  }
+
+  const rawDelta = now - lastTimestamp;
+  const clampedDelta = Math.min(rawDelta, FRAME_CLAMP_MS);
+  lastTimestamp = now;
+
+  const wallNow = Date.now();
+  updateFrame({ wallNow, delta: clampedDelta });
+
+  requestAnimationFrame(loop);
+}
+
+function updateFrame({ wallNow, delta }) {
+  const activeMode = getEffectiveMode();
+  const elapsedMs = getCurrentSessionElapsed(wallNow);
+
+  const studyDisplayMs =
+    activeMode === Modes.STUDY ? state.studyTotalMs + elapsedMs : state.studyTotalMs;
+  const breakDisplayMs =
+    activeMode === Modes.BREAK ? state.breakTotalMs + elapsedMs : state.breakTotalMs;
+
+  updateTotals(studyDisplayMs, breakDisplayMs);
+  updateTimerDisplay(elapsedMs, activeMode);
+
+  const targetRatio = getTargetStudyRatio({ wallNow, studyDisplayMs, breakDisplayMs });
+  updateDisplayRatio(targetRatio, delta);
+  renderRing(displayStudyRatio);
+
+  persistState(true, wallNow);
+}
+
+function getTargetStudyRatio({ wallNow, studyDisplayMs, breakDisplayMs }) {
+  const studyMs = studyDisplayMs ??
+    (getEffectiveMode() === Modes.STUDY ? state.studyTotalMs + getCurrentSessionElapsed(wallNow) : state.studyTotalMs);
+  const breakMs = breakDisplayMs ??
+    (getEffectiveMode() === Modes.BREAK ? state.breakTotalMs + getCurrentSessionElapsed(wallNow) : state.breakTotalMs);
+
+  const totalMs = studyMs + breakMs;
+  if (totalMs <= 0) {
+    return 0.5;
+  }
+  return Math.min(1, Math.max(0, studyMs / totalMs));
+}
+
+function updateDisplayRatio(targetRatio, delta) {
+  if (prefersReducedMotion.matches) {
+    displayStudyRatio = targetRatio;
+    return;
+  }
+
+  const frameRatio = delta / (1000 / 60);
+  const lerpFactor = 1 - Math.pow(1 - BASE_LERP, Math.max(frameRatio, 0));
+  displayStudyRatio += (targetRatio - displayStudyRatio) * lerpFactor;
+}
+
+function renderRing(ratio) {
+  const clampedRatio = Math.min(1, Math.max(0, ratio));
+  const studyLength = clampedRatio * CIRCUMFERENCE;
+  const breakLength = (1 - clampedRatio) * CIRCUMFERENCE;
+
+  elements.ringStudy.style.transform = STUDY_ROTATION;
+  elements.ringStudy.style.strokeDasharray = CIRCUMFERENCE_STR;
+  elements.ringStudy.style.strokeDashoffset = (CIRCUMFERENCE - studyLength).toFixed(3);
+
+  const breakRotation = STUDY_BASE_ROTATION_DEG + clampedRatio * 360;
+  elements.ringBreak.style.transform = `rotate(${breakRotation}deg)`;
+  elements.ringBreak.style.strokeDasharray = CIRCUMFERENCE_STR;
+  elements.ringBreak.style.strokeDashoffset = (CIRCUMFERENCE - breakLength).toFixed(3);
+}
+
+function updateTotals(studyMs, breakMs) {
+  elements.studyTotal.textContent = `Study time: ${formatHms(studyMs)}`;
+  elements.breakTotal.textContent = `Break time: ${formatHms(breakMs)}`;
+}
+
+function updateTimerDisplay(elapsedMs, activeMode) {
+  let displayedMs = elapsedMs;
+  if (!activeMode) {
+    displayedMs = 0;
+  }
+  const seconds = Math.floor(displayedMs / 1000);
+  if (seconds === lastTimerRenderSecond && activeMode) {
+    return;
+  }
+  lastTimerRenderSecond = activeMode ? seconds : null;
+  elements.timer.textContent = formatHms(displayedMs);
+}
+
+function getCurrentSessionElapsed(wallNow) {
+  const effectiveMode = getEffectiveMode();
+  if (!effectiveMode) {
+    return 0;
+  }
+  if (state.mode === Modes.PAUSED) {
+    return state.carriedSessionMs;
+  }
+  if (sessionStartPerf) {
+    const perfElapsed = Math.max(0, performance.now() - sessionStartPerf);
+    return state.carriedSessionMs + perfElapsed;
+  }
+  const sinceStart = Math.max(0, wallNow - state.sessionStart);
+  return state.carriedSessionMs + sinceStart;
+}
+
+function getEffectiveMode() {
+  if (state.mode === Modes.PAUSED) {
+    return state.resumeMode ?? null;
+  }
+  if (isActiveMode(state.mode)) {
+    return state.mode;
+  }
+  return null;
+}
+
+function isActiveMode(mode) {
+  return mode === Modes.STUDY || mode === Modes.BREAK;
+}
+
+function formatHms(ms) {
+  const totalSeconds = Math.floor(Math.max(0, ms) / 1000);
+  const hours = Math.floor(totalSeconds / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  return [hours, minutes, seconds].map((n) => String(n).padStart(2, "0")).join(":");
+}
+
+function persistState(throttled, wallNow) {
+  const now = wallNow ?? Date.now();
+  if (throttled && now - lastPersistWall < 1000) {
+    return;
+  }
+  lastPersistWall = now;
+  try {
+    const payload = {
+      mode: state.mode,
+      studyTotalMs: state.studyTotalMs,
+      breakTotalMs: state.breakTotalMs,
+      sessionStart: state.sessionStart,
+      carriedSessionMs: state.carriedSessionMs,
+      resumeMode: state.resumeMode,
+    };
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+  } catch (error) {
+    console.error("Failed to persist StudyPie state", error);
+  }
+}
+
+function startSession(targetMode) {
+  if (!isActiveMode(targetMode)) {
+    return;
+  }
+
+  const activeMode = getEffectiveMode();
+  if (activeMode === targetMode && state.mode !== Modes.PAUSED) {
+    return;
+  }
+
+  const wallNow = Date.now();
+  commitCurrentSession(wallNow);
+
+  state.mode = targetMode;
+  state.resumeMode = targetMode;
+  state.sessionStart = wallNow;
+  state.carriedSessionMs = 0;
+  lastTimerRenderSecond = null;
+  syncSessionStartPerf();
+  lastTimestamp = null;
+  applyModeClass();
+  persistState(false, wallNow);
+  renderStatic();
+}
+
+function commitCurrentSession(wallNow) {
+  const effectiveMode = getEffectiveMode();
+  if (!effectiveMode) {
+    state.carriedSessionMs = 0;
+    state.sessionStart = 0;
+    return;
+  }
+
+  const elapsed = getCurrentSessionElapsed(wallNow);
+  if (effectiveMode === Modes.STUDY) {
+    state.studyTotalMs += elapsed;
+  } else if (effectiveMode === Modes.BREAK) {
+    state.breakTotalMs += elapsed;
+  }
+  state.carriedSessionMs = 0;
+  state.sessionStart = 0;
+  sessionStartPerf = 0;
+  lastTimerRenderSecond = null;
+}
+
+function togglePause() {
+  if (state.mode === Modes.PAUSED) {
+    if (!state.resumeMode) {
+      return;
+    }
+    const wallNow = Date.now();
+    state.mode = state.resumeMode;
+    state.sessionStart = wallNow;
+    syncSessionStartPerf();
+    lastTimestamp = null;
+    applyModeClass();
+    persistState(false, wallNow);
+    return;
+  }
+
+  if (!isActiveMode(state.mode)) {
+    return;
+  }
+
+  const wallNow = Date.now();
+  const elapsed = Math.max(0, wallNow - state.sessionStart);
+  state.carriedSessionMs += elapsed;
+  state.mode = Modes.PAUSED;
+  state.sessionStart = 0;
+  sessionStartPerf = 0;
+  lastTimestamp = null;
+  applyModeClass();
+  persistState(false, wallNow);
+}
+
+function requestReset() {
+  const confirmed = window.confirm("Reset all StudyPie timers?");
+  if (!confirmed) {
+    return;
+  }
+  resetAll();
+}
+
+function resetAll() {
+  state = { ...defaultState };
+  displayStudyRatio = 0.5;
+  lastTimestamp = null;
+  sessionStartPerf = 0;
+  lastTimerRenderSecond = null;
+  applyModeClass();
+  persistState(false, Date.now());
+  renderStatic();
+}
+
+function handleKeydown(event) {
+  const isTypingTarget = event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement || event.target instanceof HTMLSelectElement;
+  if (isTypingTarget) {
+    return;
+  }
+
+  switch (event.key) {
+    case "s":
+    case "S":
+      event.preventDefault();
+      startSession(Modes.STUDY);
+      break;
+    case "b":
+    case "B":
+      event.preventDefault();
+      startSession(Modes.BREAK);
+      break;
+    case "r":
+    case "R":
+      event.preventDefault();
+      requestReset();
+      break;
+    case " ":
+    case "Spacebar":
+      event.preventDefault();
+      togglePause();
+      break;
+    default:
+      break;
+  }
+}
+
+function handleVisibilityChange() {
+  if (document.visibilityState === "visible") {
+    lastTimestamp = null;
+    syncSessionStartPerf();
+  }
+}
+
+function applyModeClass() {
+  document.body.classList.remove("mode-idle", "mode-study", "mode-break", "mode-paused");
+  const modeForClass = state.mode;
+  document.body.classList.add(`mode-${modeForClass}`);
+}
+
+function renderStatic() {
+  const wallNow = Date.now();
+  const effectiveMode = getEffectiveMode();
+  const elapsedMs = getCurrentSessionElapsed(wallNow);
+  const studyDisplayMs =
+    effectiveMode === Modes.STUDY ? state.studyTotalMs + elapsedMs : state.studyTotalMs;
+  const breakDisplayMs =
+    effectiveMode === Modes.BREAK ? state.breakTotalMs + elapsedMs : state.breakTotalMs;
+
+  updateTotals(studyDisplayMs, breakDisplayMs);
+  updateTimerDisplay(elapsedMs, effectiveMode);
+  const targetRatio = getTargetStudyRatio({ wallNow, studyDisplayMs, breakDisplayMs });
+  displayStudyRatio = prefersReducedMotion.matches ? targetRatio : displayStudyRatio;
+  renderRing(displayStudyRatio);
+}
