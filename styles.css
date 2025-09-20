@@ -171,6 +171,10 @@ body {
   overflow: hidden;
 }
 
+.control-btn--holding {
+  transition: transform 160ms ease, box-shadow 160ms ease, background 0s linear, color 200ms ease;
+}
+
 .control-btn::after {
   content: "";
   position: absolute;
@@ -222,8 +226,21 @@ body {
 }
 
 .control-btn--danger {
-  background: rgba(247, 61, 63, 0.12);
+  --reset-hold-progress: 0;
+  background: linear-gradient(
+    to right,
+    rgba(247, 61, 63, 0.4) 0%,
+    rgba(247, 61, 63, 0.4) calc(var(--reset-hold-progress) * 100%),
+    rgba(247, 61, 63, 0.12) calc(var(--reset-hold-progress) * 100%),
+    rgba(247, 61, 63, 0.12) 100%
+  );
+  background-repeat: no-repeat;
+  background-size: 100% 100%;
   color: var(--red);
+}
+
+.control-btn--danger.control-btn--holding {
+  color: #fff;
 }
 
 #btnBreak {

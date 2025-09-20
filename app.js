@@ -22,6 +22,7 @@ const CIRCUMFERENCE_STR = CIRCUMFERENCE.toFixed(3);
 const STUDY_ROTATION = `rotate(${STUDY_BASE_ROTATION_DEG}deg)`;
 const FRAME_CLAMP_MS = 200;
 const BASE_LERP = 0.25;
+const RESET_HOLD_DURATION_MS = 1200;
 
 const elements = {
   ringStudy: document.getElementById("ringStudy"),
@@ -45,6 +46,14 @@ const defaultState = {
 };
 
 let state = { ...defaultState };
+const resetHoldState = {
+  active: false,
+  startTime: 0,
+  frameId: 0,
+  pointerId: null,
+  completed: false,
+  cleanupTimeout: 0,
+};
 let displayStudyRatio = 0.5;
 let lastTimestamp = null;
 let sessionStartPerf = 0;
@@ -78,7 +87,14 @@ function attachListeners() {
   elements.btnStudy.addEventListener("click", () => startSession(Modes.STUDY));
   elements.btnBreak.addEventListener("click", () => startSession(Modes.BREAK));
   elements.btnPause.addEventListener("click", togglePause);
-  elements.btnReset.addEventListener("click", requestReset);
+  elements.btnReset.addEventListener("pointerdown", handleResetPointerDown);
+  elements.btnReset.addEventListener("pointerup", handleResetPointerUp);
+  elements.btnReset.addEventListener("pointerleave", handleResetPointerLeave);
+  elements.btnReset.addEventListener("pointercancel", handleResetPointerCancel);
+  elements.btnReset.addEventListener("lostpointercapture", handleResetPointerCancel);
+  elements.btnReset.addEventListener("keydown", handleResetKeyDown);
+  elements.btnReset.addEventListener("keyup", handleResetKeyUp);
+  elements.btnReset.addEventListener("blur", handleResetBlur);
 
   window.addEventListener("keydown", handleKeydown);
   document.addEventListener("visibilitychange", handleVisibilityChange);
@@ -286,6 +302,11 @@ function startSession(targetMode) {
     return;
   }
 
+  if (state.mode === Modes.PAUSED && state.resumeMode === targetMode) {
+    togglePause();
+    return;
+  }
+
   const activeMode = getEffectiveMode();
   if (activeMode === targetMode && state.mode !== Modes.PAUSED) {
     return;
@@ -356,10 +377,174 @@ function togglePause() {
   persistState(false, wallNow);
 }
 
-function requestReset() {
-  const confirmed = window.confirm("Reset all StudyPie timers?");
-  if (!confirmed) {
+function handleResetPointerDown(event) {
+  if (typeof event.button === "number" && event.button !== 0) {
     return;
+  }
+  if (resetHoldState.active || resetHoldState.completed) {
+    return;
+  }
+  resetHoldState.pointerId = event.pointerId ?? null;
+  if (resetHoldState.pointerId !== null) {
+    try {
+      elements.btnReset.setPointerCapture(resetHoldState.pointerId);
+    } catch (error) {
+      // Ignore failures to capture; continue gracefully.
+      resetHoldState.pointerId = null;
+    }
+  }
+  beginResetHold();
+}
+
+function handleResetPointerUp(event) {
+  if (resetHoldState.pointerId !== null && event.pointerId !== resetHoldState.pointerId) {
+    return;
+  }
+  if (resetHoldState.active) {
+    cancelResetHold();
+    return;
+  }
+  releaseResetPointerCapture();
+}
+
+function handleResetPointerLeave(event) {
+  if (resetHoldState.pointerId !== null && event.pointerId !== resetHoldState.pointerId) {
+    return;
+  }
+  if (!resetHoldState.active || resetHoldState.completed) {
+    return;
+  }
+  cancelResetHold();
+}
+
+function handleResetPointerCancel(event) {
+  if (resetHoldState.pointerId !== null && event.pointerId !== resetHoldState.pointerId) {
+    return;
+  }
+  if (resetHoldState.active) {
+    cancelResetHold();
+  }
+  releaseResetPointerCapture();
+}
+
+function handleResetKeyDown(event) {
+  if (!isResetActivationKey(event) || event.repeat) {
+    return;
+  }
+  event.preventDefault();
+  if (resetHoldState.active || resetHoldState.completed) {
+    return;
+  }
+  beginResetHold();
+}
+
+function handleResetKeyUp(event) {
+  if (!isResetActivationKey(event)) {
+    return;
+  }
+  event.preventDefault();
+  if (resetHoldState.active) {
+    cancelResetHold();
+  }
+}
+
+function handleResetBlur() {
+  if (resetHoldState.active) {
+    cancelResetHold();
+  }
+}
+
+function beginResetHold() {
+  clearResetHoldCleanup();
+  resetHoldState.active = true;
+  resetHoldState.completed = false;
+  resetHoldState.startTime = performance.now();
+  setResetHoldProgress(0);
+  elements.btnReset.classList.add("control-btn--holding");
+  resetHoldState.frameId = requestAnimationFrame(updateResetHoldProgress);
+}
+
+function updateResetHoldProgress(now) {
+  if (!resetHoldState.active) {
+    return;
+  }
+  const elapsed = Math.max(0, now - resetHoldState.startTime);
+  const progress = Math.min(1, elapsed / RESET_HOLD_DURATION_MS);
+  setResetHoldProgress(progress);
+  if (progress >= 1) {
+    finalizeResetHold();
+    return;
+  }
+  resetHoldState.frameId = requestAnimationFrame(updateResetHoldProgress);
+}
+
+function finalizeResetHold() {
+  resetHoldState.active = false;
+  resetHoldState.completed = true;
+  if (resetHoldState.frameId) {
+    cancelAnimationFrame(resetHoldState.frameId);
+    resetHoldState.frameId = 0;
+  }
+  setResetHoldProgress(1);
+  releaseResetPointerCapture();
+  resetAll();
+  scheduleResetHoldCleanup();
+}
+
+function cancelResetHold() {
+  if (resetHoldState.frameId) {
+    cancelAnimationFrame(resetHoldState.frameId);
+    resetHoldState.frameId = 0;
+  }
+  resetHoldState.active = false;
+  resetHoldState.completed = false;
+  resetHoldState.startTime = 0;
+  setResetHoldProgress(0);
+  elements.btnReset.classList.remove("control-btn--holding");
+  releaseResetPointerCapture();
+  clearResetHoldCleanup();
+}
+
+function scheduleResetHoldCleanup() {
+  clearResetHoldCleanup();
+  resetHoldState.cleanupTimeout = window.setTimeout(() => {
+    resetHoldState.cleanupTimeout = 0;
+    resetHoldState.completed = false;
+    setResetHoldProgress(0);
+    elements.btnReset.classList.remove("control-btn--holding");
+  }, 180);
+}
+
+function clearResetHoldCleanup() {
+  if (resetHoldState.cleanupTimeout) {
+    clearTimeout(resetHoldState.cleanupTimeout);
+    resetHoldState.cleanupTimeout = 0;
+  }
+}
+
+function releaseResetPointerCapture() {
+  if (resetHoldState.pointerId === null) {
+    return;
+  }
+  try {
+    elements.btnReset.releasePointerCapture(resetHoldState.pointerId);
+  } catch (error) {
+    // Ignore errors releasing capture; element may not be capturing.
+  }
+  resetHoldState.pointerId = null;
+}
+
+function setResetHoldProgress(progress) {
+  elements.btnReset.style.setProperty("--reset-hold-progress", progress.toFixed(3));
+}
+
+function isResetActivationKey(event) {
+  return event.key === " " || event.key === "Spacebar" || event.key === "Enter";
+}
+
+function requestReset() {
+  if (resetHoldState.active) {
+    cancelResetHold();
   }
   resetAll();
 }
