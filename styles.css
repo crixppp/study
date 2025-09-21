@@ -26,6 +26,7 @@
   --ringThickness: 26;
   --ringSize: clamp(15rem, 45vw, 26rem);
   --btn-radius: 999px;
+  --toggle-size: 2.5rem;
   --shadow-soft: 0 12px 28px rgba(17, 17, 17, 0.08);
   --shadow-press: 0 6px 16px rgba(17, 17, 17, 0.12);
 }
@@ -75,6 +76,7 @@ body {
   font-feature-settings: "tnum" 1;
   background-color: var(--bg);
   color: var(--fg);
+  color-scheme: light;
   line-height: 1.5;
   display: flex;
   justify-content: center;
@@ -103,6 +105,77 @@ body {
   letter-spacing: 0.08em;
   text-transform: uppercase;
   margin: 0;
+  grid-column: 2;
+  align-self: center;
+  justify-self: center;
+}
+
+.theme-toggle {
+  grid-column: 1;
+  grid-row: 1;
+  justify-self: start;
+  align-self: start;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: var(--toggle-size);
+  height: var(--toggle-size);
+  padding: 0;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--fg);
+  cursor: pointer;
+  box-shadow: none;
+  transition: background-color 220ms ease, color 220ms ease, box-shadow 220ms ease,
+    transform 160ms ease;
+  transform-origin: center;
+}
+
+.theme-toggle:hover {
+  background-color: var(--toggle-surface);
+  box-shadow: var(--toggle-shadow);
+}
+
+.theme-toggle:active {
+  background-color: var(--toggle-surface-active);
+  transform: scale(0.92);
+}
+
+.theme-toggle:focus-visible {
+  outline: 3px solid var(--outline-color);
+  outline-offset: 3px;
+}
+
+.theme-toggle__icon {
+  width: 1.25rem;
+  height: 1.25rem;
+  display: block;
+}
+
+.theme-toggle__moon-outline {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  transition: opacity 220ms ease, stroke 220ms ease;
+}
+
+.theme-toggle__moon-fill {
+  fill: currentColor;
+  opacity: 0;
+  transform-origin: 50% 50%;
+  transition: opacity 220ms ease, transform 220ms ease;
+}
+
+.theme-toggle--active .theme-toggle__moon-outline {
+  opacity: 0;
+}
+
+.theme-toggle--active .theme-toggle__moon-fill {
+  opacity: 1;
+  transform: scale(0.94);
 }
 
 .theme-toggle {
