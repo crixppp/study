@@ -159,14 +159,7 @@ function setTheme(nextTheme, persist = true) {
   }
 
   activeTheme = nextTheme;
-  const isDark = nextTheme === Theme.DARK;
-  if (document.body) {
-    document.body.classList.toggle("theme-dark", isDark);
-  }
-  if (document.documentElement) {
-    document.documentElement.setAttribute("data-theme", nextTheme);
-    document.documentElement.style.setProperty("color-scheme", isDark ? "dark" : "light");
-  }
+  document.body.classList.toggle("theme-dark", nextTheme === Theme.DARK);
   updateThemeToggle();
 
   if (!persist) {
