@@ -37,6 +37,8 @@ const elements = {
   timer: document.getElementById("timer"),
   studyTotal: document.getElementById("studyTotal"),
   breakTotal: document.getElementById("breakTotal"),
+  studyTotalValue: document.querySelector("#studyTotal .total__value"),
+  breakTotalValue: document.querySelector("#breakTotal .total__value"),
   btnStudy: document.getElementById("btnStudy"),
   btnBreak: document.getElementById("btnBreak"),
   btnPause: document.getElementById("btnPause"),
@@ -320,8 +322,17 @@ function renderRing(ratio) {
 }
 
 function updateTotals(studyMs, breakMs) {
-  elements.studyTotal.textContent = `Study time:\n${formatHms(studyMs)}`;
-  elements.breakTotal.textContent = `Break time:\n${formatHms(breakMs)}`;
+  if (elements.studyTotalValue) {
+    elements.studyTotalValue.textContent = formatHms(studyMs);
+  } else if (elements.studyTotal) {
+    elements.studyTotal.textContent = `Study time:\n${formatHms(studyMs)}`;
+  }
+
+  if (elements.breakTotalValue) {
+    elements.breakTotalValue.textContent = formatHms(breakMs);
+  } else if (elements.breakTotal) {
+    elements.breakTotal.textContent = `Break time:\n${formatHms(breakMs)}`;
+  }
 }
 
 function updateTimerDisplay(elapsedMs, activeMode) {
