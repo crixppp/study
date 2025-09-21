@@ -26,9 +26,7 @@
   --ringThickness: 26;
   --ringSize: clamp(15rem, 45vw, 26rem);
   --btn-radius: 999px;
-  --layout-gutter: clamp(1.25rem, 4vw, 3rem);
-  --toggle-edge-offset: clamp(0.75rem, 2.5vw, 1.5rem);
-  --toggle-size: 2.75rem;
+  --toggle-size: 2.5rem;
   --shadow-soft: 0 12px 28px rgba(17, 17, 17, 0.08);
   --shadow-press: 0 6px 16px rgba(17, 17, 17, 0.12);
 }
@@ -60,7 +58,6 @@ body.theme-dark {
   --shadow-press: 0 6px 16px rgba(0, 0, 0, 0.6);
   --red: #ff6c6e;
   --green: #7dd37d;
-  color-scheme: dark;
 }
 
 * {
@@ -99,22 +96,8 @@ body {
 
 .app__header {
   display: grid;
-  grid-template-columns: auto 1fr auto;
   align-items: center;
   justify-items: center;
-  min-height: var(--toggle-size);
-}
-
-.app__header::after {
-  content: "";
-  width: var(--toggle-size);
-  height: var(--toggle-size);
-  grid-column: 3;
-  grid-row: 1;
-  align-self: start;
-  justify-self: end;
-  visibility: hidden;
-  pointer-events: none;
 }
 
 .app__logo {
@@ -137,7 +120,6 @@ body {
   justify-content: center;
   width: var(--toggle-size);
   height: var(--toggle-size);
-  margin-left: calc(var(--toggle-edge-offset) - var(--layout-gutter));
   padding: 0;
   border: none;
   border-radius: 999px;
@@ -166,8 +148,8 @@ body {
 }
 
 .theme-toggle__icon {
-  width: 1.45rem;
-  height: 1.45rem;
+  width: 1.25rem;
+  height: 1.25rem;
   display: block;
 }
 
@@ -194,6 +176,60 @@ body {
 .theme-toggle--active .theme-toggle__moon-fill {
   opacity: 1;
   transform: scale(0.94);
+}
+
+.theme-toggle {
+  justify-self: start;
+  align-self: start;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2.5rem;
+  height: 2.5rem;
+  padding: 0;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--fg);
+  cursor: pointer;
+  box-shadow: none;
+  transition: background-color 220ms ease, color 220ms ease, box-shadow 220ms ease,
+    transform 160ms ease;
+}
+
+.theme-toggle:hover {
+  background-color: var(--toggle-surface);
+  box-shadow: var(--toggle-shadow);
+}
+
+.theme-toggle:active {
+  background-color: var(--toggle-surface-active);
+  transform: scale(0.92);
+}
+
+.theme-toggle:focus-visible {
+  outline: 3px solid var(--outline-color);
+  outline-offset: 3px;
+}
+
+.theme-toggle__icon {
+  width: 1.25rem;
+  height: 1.25rem;
+  display: block;
+}
+
+.theme-toggle__moon {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.6;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  transition: fill 220ms ease, stroke 220ms ease;
+}
+
+.theme-toggle--active .theme-toggle__moon {
+  fill: currentColor;
+  stroke: none;
 }
 
 .app__main {
