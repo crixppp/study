@@ -14,7 +14,13 @@ const Modes = Object.freeze({
   PAUSED: "paused",
 });
 
+const Theme = Object.freeze({
+  LIGHT: "light",
+  DARK: "dark",
+});
+
 const STORAGE_KEY = "studypie-state";
+const THEME_STORAGE_KEY = "studypie-theme";
 const RADIUS = 90;
 const CIRCUMFERENCE = 2 * Math.PI * RADIUS;
 const STUDY_BASE_ROTATION_DEG = 90;
@@ -25,6 +31,7 @@ const BASE_LERP = 0.25;
 const RESET_HOLD_DURATION_MS = 1200;
 
 const elements = {
+  themeToggle: document.getElementById("btnTheme"),
   ringStudy: document.getElementById("ringStudy"),
   ringBreak: document.getElementById("ringBreak"),
   timer: document.getElementById("timer"),
@@ -59,6 +66,11 @@ let lastTimestamp = null;
 let sessionStartPerf = 0;
 let lastTimerRenderSecond = null;
 let lastPersistWall = 0;
+let activeTheme = Theme.LIGHT;
+let themeLockedByUser = false;
+const colorSchemeMedia = window.matchMedia
+  ? window.matchMedia("(prefers-color-scheme: dark)")
+  : null;
 let prefersReducedMotion = window.matchMedia
   ? window.matchMedia("(prefers-reduced-motion: reduce)")
   : { matches: false };
@@ -77,6 +89,7 @@ if (typeof prefersReducedMotion.addEventListener === "function") {
   prefersReducedMotion.addListener(motionListener);
 }
 
+initializeTheme();
 loadState();
 applyModeClass();
 renderStatic();
@@ -84,6 +97,9 @@ attachListeners();
 requestAnimationFrame(loop);
 
 function attachListeners() {
+  if (elements.themeToggle) {
+    elements.themeToggle.addEventListener("click", handleThemeToggleClick);
+  }
   elements.btnStudy.addEventListener("click", () => startSession(Modes.STUDY));
   elements.btnBreak.addEventListener("click", () => startSession(Modes.BREAK));
   elements.btnPause.addEventListener("click", togglePause);
@@ -98,6 +114,89 @@ function attachListeners() {
 
   window.addEventListener("keydown", handleKeydown);
   document.addEventListener("visibilitychange", handleVisibilityChange);
+}
+
+function initializeTheme() {
+  const storedTheme = readStoredTheme();
+  if (storedTheme) {
+    themeLockedByUser = true;
+    setTheme(storedTheme, false);
+  } else {
+    const defaultTheme = colorSchemeMedia && colorSchemeMedia.matches ? Theme.DARK : Theme.LIGHT;
+    setTheme(defaultTheme, false);
+  }
+
+  if (colorSchemeMedia) {
+    if (typeof colorSchemeMedia.addEventListener === "function") {
+      colorSchemeMedia.addEventListener("change", handleColorSchemeChange);
+    } else if (typeof colorSchemeMedia.addListener === "function") {
+      colorSchemeMedia.addListener(handleColorSchemeChange);
+    }
+  }
+}
+
+function handleColorSchemeChange(event) {
+  if (themeLockedByUser) {
+    return;
+  }
+
+  setTheme(event.matches ? Theme.DARK : Theme.LIGHT, false);
+}
+
+function handleThemeToggleClick() {
+  themeLockedByUser = true;
+  toggleTheme();
+}
+
+function toggleTheme() {
+  const nextTheme = activeTheme === Theme.DARK ? Theme.LIGHT : Theme.DARK;
+  setTheme(nextTheme);
+}
+
+function setTheme(nextTheme, persist = true) {
+  if (!Object.values(Theme).includes(nextTheme)) {
+    return;
+  }
+
+  activeTheme = nextTheme;
+  document.body.classList.toggle("theme-dark", nextTheme === Theme.DARK);
+  updateThemeToggle();
+
+  if (!persist) {
+    return;
+  }
+
+  try {
+    localStorage.setItem(THEME_STORAGE_KEY, nextTheme);
+  } catch (error) {
+    // Ignore storage errors (e.g. privacy mode).
+  }
+}
+
+function updateThemeToggle() {
+  if (!elements.themeToggle) {
+    return;
+  }
+
+  const isDark = activeTheme === Theme.DARK;
+  const label = isDark ? "Switch to light mode" : "Switch to dark mode";
+  elements.themeToggle.classList.toggle("theme-toggle--active", isDark);
+  elements.themeToggle.setAttribute("aria-pressed", String(isDark));
+  elements.themeToggle.setAttribute("aria-label", label);
+  elements.themeToggle.setAttribute("title", label);
+}
+
+function readStoredTheme() {
+  try {
+    const stored = localStorage.getItem(THEME_STORAGE_KEY);
+    if (stored && Object.values(Theme).includes(stored)) {
+      return stored;
+    }
+  } catch (error) {
+    // Ignore storage errors (e.g. disabled cookies).
+  }
+
+  return null;
 }
 
 function loadState() {
