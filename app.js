@@ -325,6 +325,7 @@ function updateTotals(studyMs, breakMs) {
   if (elements.studyTotalValue) {
     elements.studyTotalValue.textContent = formatHms(studyMs);
   } else if (elements.studyTotal) {
+
     elements.studyTotal.textContent = `Study time:\n${formatHms(studyMs)}`;
   }
 
