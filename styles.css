@@ -26,6 +26,7 @@
   --ringThickness: 26;
   --ringSize: clamp(15rem, 45vw, 26rem);
   --btn-radius: 999px;
+  --layout-gutter: clamp(1.25rem, 4vw, 3rem);
   --toggle-size: 2.5rem;
   --shadow-soft: 0 12px 28px rgba(17, 17, 17, 0.08);
   --shadow-press: 0 6px 16px rgba(17, 17, 17, 0.12);
@@ -98,6 +99,7 @@ body {
   display: grid;
   align-items: center;
   justify-items: center;
+  position: relative;
 }
 
 .app__logo {
@@ -115,6 +117,9 @@ body {
   grid-row: 1;
   justify-self: start;
   align-self: start;
+  position: absolute;
+  top: 50%;
+  left: 0;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -129,6 +134,7 @@ body {
   box-shadow: none;
   transition: background-color 220ms ease, color 220ms ease, box-shadow 220ms ease,
     transform 160ms ease;
+  transform: translateY(-50%);
   transform-origin: center;
 }
 
@@ -139,7 +145,7 @@ body {
 
 .theme-toggle:active {
   background-color: var(--toggle-surface-active);
-  transform: scale(0.92);
+  transform: translateY(-50%) scale(0.92);
 }
 
 .theme-toggle:focus-visible {
@@ -204,7 +210,7 @@ body {
 
 .theme-toggle:active {
   background-color: var(--toggle-surface-active);
-  transform: scale(0.92);
+  transform: translateY(-50%) scale(0.92);
 }
 
 .theme-toggle:focus-visible {
