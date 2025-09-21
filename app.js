@@ -320,8 +320,8 @@ function renderRing(ratio) {
 }
 
 function updateTotals(studyMs, breakMs) {
-  elements.studyTotal.textContent = `Study time: ${formatHms(studyMs)}`;
-  elements.breakTotal.textContent = `Break time: ${formatHms(breakMs)}`;
+  elements.studyTotal.textContent = `Study time:\n${formatHms(studyMs)}`;
+  elements.breakTotal.textContent = `Break time:\n${formatHms(breakMs)}`;
 }
 
 function updateTimerDisplay(elapsedMs, activeMode) {
