@@ -16,6 +16,30 @@
   <body>
     <div class="app" data-testid="app-root">
       <header class="app__header">
+        <button
+          id="btnTheme"
+          class="theme-toggle"
+          type="button"
+          aria-label="Switch to dark mode"
+          aria-pressed="false"
+        >
+          <svg
+            class="theme-toggle__icon"
+            viewBox="0 0 24 24"
+            role="presentation"
+            aria-hidden="true"
+            focusable="false"
+          >
+            <path
+              class="theme-toggle__moon-outline"
+              d="M21 12.79A9 9 0 1111.21 3a7 7 0 0010 9.79z"
+            ></path>
+            <path
+              class="theme-toggle__moon-fill"
+              d="M21 12.79A9 9 0 1111.21 3a7 7 0 0010 9.79z"
+            ></path>
+          </svg>
+        </button>
         <h1 class="app__logo">StudyPie</h1>
       </header>
       <main class="app__main" role="main">
