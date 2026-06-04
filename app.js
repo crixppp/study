@@ -7,17 +7,20 @@ Non-negotiables:
 - Honour prefers-reduced-motion.
 */
 
-const Modes = Object.freeze({
-  IDLE: "idle",
-  STUDY: "study",
-  BREAK: "break",
-  PAUSED: "paused",
-});
-
-const Theme = Object.freeze({
-  LIGHT: "light",
-  DARK: "dark",
-});
+const {
+  Modes,
+  Theme,
+  defaultState,
+  formatHms,
+  getControlState,
+  getDisplayTotals,
+  getEffectiveMode: getEffectiveModeFromState,
+  getRatioInfo,
+  getStatusText,
+  isActiveMode,
+  isTheme,
+  normalizeState,
+} = window.StudyPieCore;
 
 const STORAGE_KEY = "studypie-state";
 const THEME_STORAGE_KEY = "studypie-theme";
@@ -35,6 +38,7 @@ const elements = {
   ringStudy: document.getElementById("ringStudy"),
   ringBreak: document.getElementById("ringBreak"),
   timer: document.getElementById("timer"),
+  timerStatus: document.getElementById("timerStatus"),
   studyTotal: document.getElementById("studyTotal"),
   breakTotal: document.getElementById("breakTotal"),
   studyTotalValue: document.querySelector("#studyTotal .total__value"),
@@ -43,15 +47,6 @@ const elements = {
   btnBreak: document.getElementById("btnBreak"),
   btnPause: document.getElementById("btnPause"),
   btnReset: document.getElementById("btnReset"),
-};
-
-const defaultState = {
-  mode: Modes.IDLE,
-  studyTotalMs: 0,
-  breakTotalMs: 0,
-  sessionStart: 0,
-  carriedSessionMs: 0,
-  resumeMode: null,
 };
 
 let state = { ...defaultState };
@@ -68,6 +63,7 @@ let lastTimestamp = null;
 let sessionStartPerf = 0;
 let lastTimerRenderSecond = null;
 let lastPersistWall = 0;
+let hasVisibleTime = false;
 let activeTheme = Theme.LIGHT;
 let themeLockedByUser = false;
 const colorSchemeMedia = window.matchMedia
@@ -80,8 +76,7 @@ let prefersReducedMotion = window.matchMedia
 const motionListener = () => {
   // Sync immediately when preference changes so smoothing respects it.
   if (prefersReducedMotion.matches) {
-    displayStudyRatio = getTargetStudyRatio({ wallNow: Date.now() });
-    renderRing(displayStudyRatio);
+    renderStatic();
   }
 };
 
@@ -156,7 +151,7 @@ function toggleTheme() {
 }
 
 function setTheme(nextTheme, persist = true) {
-  if (!Object.values(Theme).includes(nextTheme)) {
+  if (!isTheme(nextTheme)) {
     return;
   }
 
@@ -191,7 +186,7 @@ function updateThemeToggle() {
 function readStoredTheme() {
   try {
     const stored = localStorage.getItem(THEME_STORAGE_KEY);
-    if (stored && Object.values(Theme).includes(stored)) {
+    if (stored && isTheme(stored)) {
       return stored;
     }
   } catch (error) {
@@ -206,27 +201,9 @@ function loadState() {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
       const data = JSON.parse(raw);
-      const sanitized = {
-        mode: Object.values(Modes).includes(data.mode) ? data.mode : Modes.IDLE,
-        studyTotalMs: Number.isFinite(data.studyTotalMs) ? Math.max(0, data.studyTotalMs) : 0,
-        breakTotalMs: Number.isFinite(data.breakTotalMs) ? Math.max(0, data.breakTotalMs) : 0,
-        sessionStart: Number.isFinite(data.sessionStart) ? data.sessionStart : 0,
-        carriedSessionMs: Number.isFinite(data.carriedSessionMs) ? Math.max(0, data.carriedSessionMs) : 0,
-        resumeMode: Object.values(Modes).includes(data.resumeMode) ? data.resumeMode : null,
-      };
-
-      state = { ...defaultState, ...sanitized };
-
-      if (state.mode === Modes.PAUSED && !state.resumeMode) {
-        state.resumeMode = Modes.STUDY;
-      }
+      state = normalizeState(data, Date.now());
 
       if (isActiveMode(state.mode)) {
-        // Ensure sessionStart is valid; if not, reset to now.
-        if (!state.sessionStart) {
-          const now = Date.now();
-          state.sessionStart = now;
-        }
         syncSessionStartPerf();
       }
     }
@@ -235,8 +212,11 @@ function loadState() {
     state = { ...defaultState };
   }
 
-  const total = state.studyTotalMs + state.breakTotalMs;
-  displayStudyRatio = total > 0 ? state.studyTotalMs / total : 0.5;
+  const elapsedMs = getCurrentSessionElapsed(Date.now());
+  const totals = getDisplayTotals(state, elapsedMs);
+  const ratioInfo = getRatioInfo(totals.studyMs, totals.breakMs);
+  displayStudyRatio = ratioInfo.studyRatio;
+  hasVisibleTime = ratioInfo.hasTime;
 }
 
 function syncSessionStartPerf() {
@@ -266,50 +246,48 @@ function loop(now) {
 function updateFrame({ wallNow, delta }) {
   const activeMode = getEffectiveMode();
   const elapsedMs = getCurrentSessionElapsed(wallNow);
-
-  const studyDisplayMs =
-    activeMode === Modes.STUDY ? state.studyTotalMs + elapsedMs : state.studyTotalMs;
-  const breakDisplayMs =
-    activeMode === Modes.BREAK ? state.breakTotalMs + elapsedMs : state.breakTotalMs;
+  const { studyMs: studyDisplayMs, breakMs: breakDisplayMs } = getDisplayTotals(state, elapsedMs);
 
   updateTotals(studyDisplayMs, breakDisplayMs);
   updateTimerDisplay(elapsedMs, activeMode);
+  updateStatus();
 
-  const targetRatio = getTargetStudyRatio({ wallNow, studyDisplayMs, breakDisplayMs });
-  updateDisplayRatio(targetRatio, delta);
-  renderRing(displayStudyRatio);
+  const ratioInfo = getRatioInfo(studyDisplayMs, breakDisplayMs);
+  syncDisplayRatio(ratioInfo.studyRatio, delta, ratioInfo.hasTime);
+  renderRing(displayStudyRatio, ratioInfo.hasTime);
 
   persistState(true, wallNow);
 }
 
-function getTargetStudyRatio({ wallNow, studyDisplayMs, breakDisplayMs }) {
-  const studyMs = studyDisplayMs ??
-    (getEffectiveMode() === Modes.STUDY ? state.studyTotalMs + getCurrentSessionElapsed(wallNow) : state.studyTotalMs);
-  const breakMs = breakDisplayMs ??
-    (getEffectiveMode() === Modes.BREAK ? state.breakTotalMs + getCurrentSessionElapsed(wallNow) : state.breakTotalMs);
-
-  const totalMs = studyMs + breakMs;
-  if (totalMs <= 0) {
-    return 0.5;
+function syncDisplayRatio(targetRatio, delta, hasTime) {
+  if (!hasTime) {
+    displayStudyRatio = targetRatio;
+    hasVisibleTime = false;
+    return;
   }
-  return Math.min(1, Math.max(0, studyMs / totalMs));
-}
 
-function updateDisplayRatio(targetRatio, delta) {
   if (prefersReducedMotion.matches) {
     displayStudyRatio = targetRatio;
+    hasVisibleTime = true;
+    return;
+  }
+
+  if (!hasVisibleTime) {
+    displayStudyRatio = targetRatio;
+    hasVisibleTime = true;
     return;
   }
 
   const frameRatio = delta / (1000 / 60);
   const lerpFactor = 1 - Math.pow(1 - BASE_LERP, Math.max(frameRatio, 0));
   displayStudyRatio += (targetRatio - displayStudyRatio) * lerpFactor;
+  hasVisibleTime = true;
 }
 
-function renderRing(ratio) {
+function renderRing(ratio, hasTime = true) {
   const clampedRatio = Math.min(1, Math.max(0, ratio));
-  const studyLength = clampedRatio * CIRCUMFERENCE;
-  const breakLength = (1 - clampedRatio) * CIRCUMFERENCE;
+  const studyLength = hasTime ? clampedRatio * CIRCUMFERENCE : 0;
+  const breakLength = hasTime ? (1 - clampedRatio) * CIRCUMFERENCE : 0;
 
   elements.ringStudy.style.transform = STUDY_ROTATION;
   elements.ringStudy.style.strokeDasharray = CIRCUMFERENCE_STR;
@@ -349,6 +327,55 @@ function updateTimerDisplay(elapsedMs, activeMode) {
   elements.timer.textContent = formatHms(displayedMs);
 }
 
+function updateStatus() {
+  if (elements.timerStatus) {
+    elements.timerStatus.textContent = getStatusText(state);
+  }
+}
+
+function updateControls() {
+  const controlState = getControlState(state);
+  setControlButtonState(elements.btnStudy, controlState.study);
+  setControlButtonState(elements.btnBreak, controlState.break);
+  setControlButtonState(elements.btnPause, controlState.pause);
+  updateResetButtonState();
+}
+
+function setControlButtonState(button, nextState) {
+  if (!button || !nextState) {
+    return;
+  }
+
+  button.textContent = nextState.label;
+  button.classList.toggle("is-active", Boolean(nextState.pressed));
+  button.setAttribute("aria-pressed", String(Boolean(nextState.pressed)));
+  button.disabled = Boolean(nextState.disabled);
+
+  if (button.disabled) {
+    button.setAttribute("aria-disabled", "true");
+  } else {
+    button.removeAttribute("aria-disabled");
+  }
+}
+
+function updateResetButtonState() {
+  if (!elements.btnReset) {
+    return;
+  }
+
+  const label = resetHoldState.active
+    ? "Keep Holding"
+    : resetHoldState.completed
+      ? "Reset Done"
+      : "Hold Reset";
+  const ariaLabel = resetHoldState.active
+    ? "Keep holding to reset. Release to cancel."
+    : "Hold to reset all study and break time.";
+
+  elements.btnReset.textContent = label;
+  elements.btnReset.setAttribute("aria-label", ariaLabel);
+}
+
 function getCurrentSessionElapsed(wallNow) {
   const effectiveMode = getEffectiveMode();
   if (!effectiveMode) {
@@ -366,25 +393,7 @@ function getCurrentSessionElapsed(wallNow) {
 }
 
 function getEffectiveMode() {
-  if (state.mode === Modes.PAUSED) {
-    return state.resumeMode ?? null;
-  }
-  if (isActiveMode(state.mode)) {
-    return state.mode;
-  }
-  return null;
-}
-
-function isActiveMode(mode) {
-  return mode === Modes.STUDY || mode === Modes.BREAK;
-}
-
-function formatHms(ms) {
-  const totalSeconds = Math.floor(Math.max(0, ms) / 1000);
-  const hours = Math.floor(totalSeconds / 3600);
-  const minutes = Math.floor((totalSeconds % 3600) / 60);
-  const seconds = totalSeconds % 60;
-  return [hours, minutes, seconds].map((n) => String(n).padStart(2, "0")).join(":");
+  return getEffectiveModeFromState(state);
 }
 
 function persistState(throttled, wallNow) {
@@ -572,6 +581,7 @@ function beginResetHold() {
   resetHoldState.startTime = performance.now();
   setResetHoldProgress(0);
   elements.btnReset.classList.add("control-btn--holding");
+  updateResetButtonState();
   resetHoldState.frameId = requestAnimationFrame(updateResetHoldProgress);
 }
 
@@ -597,6 +607,7 @@ function finalizeResetHold() {
     resetHoldState.frameId = 0;
   }
   setResetHoldProgress(1);
+  updateResetButtonState();
   releaseResetPointerCapture();
   resetAll();
   scheduleResetHoldCleanup();
@@ -612,6 +623,7 @@ function cancelResetHold() {
   resetHoldState.startTime = 0;
   setResetHoldProgress(0);
   elements.btnReset.classList.remove("control-btn--holding");
+  updateResetButtonState();
   releaseResetPointerCapture();
   clearResetHoldCleanup();
 }
@@ -623,6 +635,7 @@ function scheduleResetHoldCleanup() {
     resetHoldState.completed = false;
     setResetHoldProgress(0);
     elements.btnReset.classList.remove("control-btn--holding");
+    updateResetButtonState();
   }, 180);
 }
 
@@ -663,6 +676,7 @@ function requestReset() {
 function resetAll() {
   state = { ...defaultState };
   displayStudyRatio = 0.5;
+  hasVisibleTime = false;
   lastTimestamp = null;
   sessionStartPerf = 0;
   lastTimerRenderSecond = null;
@@ -742,20 +756,21 @@ function applyModeClass() {
   document.body.classList.remove("mode-idle", "mode-study", "mode-break", "mode-paused");
   const modeForClass = state.mode;
   document.body.classList.add(`mode-${modeForClass}`);
+  updateStatus();
+  updateControls();
 }
 
 function renderStatic() {
   const wallNow = Date.now();
   const effectiveMode = getEffectiveMode();
   const elapsedMs = getCurrentSessionElapsed(wallNow);
-  const studyDisplayMs =
-    effectiveMode === Modes.STUDY ? state.studyTotalMs + elapsedMs : state.studyTotalMs;
-  const breakDisplayMs =
-    effectiveMode === Modes.BREAK ? state.breakTotalMs + elapsedMs : state.breakTotalMs;
+  const { studyMs: studyDisplayMs, breakMs: breakDisplayMs } = getDisplayTotals(state, elapsedMs);
 
   updateTotals(studyDisplayMs, breakDisplayMs);
   updateTimerDisplay(elapsedMs, effectiveMode);
-  const targetRatio = getTargetStudyRatio({ wallNow, studyDisplayMs, breakDisplayMs });
-  displayStudyRatio = prefersReducedMotion.matches ? targetRatio : displayStudyRatio;
-  renderRing(displayStudyRatio);
+  updateStatus();
+  updateControls();
+  const ratioInfo = getRatioInfo(studyDisplayMs, breakDisplayMs);
+  syncDisplayRatio(ratioInfo.studyRatio, 0, ratioInfo.hasTime);
+  renderRing(displayStudyRatio, ratioInfo.hasTime);
 }
