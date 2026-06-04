@@ -3,6 +3,10 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      name="description"
+      content="A focused study and break timer with persistent totals."
+    />
     <title>StudyPie</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -52,7 +56,10 @@
                 <circle id="ringBreak" data-testid="ring-break" class="ring-segment ring-segment--break" cx="110" cy="110" r="90"></circle>
                 <circle id="ringStudy" data-testid="ring-study" class="ring-segment ring-segment--study" cx="110" cy="110" r="90"></circle>
               </svg>
-              <div class="timer" id="timer" data-testid="timer" role="timer" aria-live="polite">00:00:00</div>
+              <div class="timer-center">
+                <div class="timer" id="timer" data-testid="timer" role="timer" aria-live="polite">00:00:00</div>
+                <div class="timer-status" id="timerStatus" data-testid="timer-status" aria-live="polite">Ready</div>
+              </div>
             </div>
           </div>
           <div class="total total--study" id="studyTotal" data-testid="study-total">
@@ -63,11 +70,12 @@
         <section class="controls" aria-label="Timer controls">
           <button id="btnStudy" data-testid="btn-study" class="control-btn control-btn--primary" type="button">Start Study</button>
           <button id="btnBreak" data-testid="btn-break" class="control-btn" type="button">Start Break</button>
-          <button id="btnPause" data-testid="btn-pause" class="control-btn" type="button">Pause/Resume</button>
-          <button id="btnReset" data-testid="btn-reset" class="control-btn control-btn--danger" type="button">Reset</button>
+          <button id="btnPause" data-testid="btn-pause" class="control-btn" type="button" disabled>Pause</button>
+          <button id="btnReset" data-testid="btn-reset" class="control-btn control-btn--danger" type="button">Hold Reset</button>
         </section>
       </main>
     </div>
+    <script src="app-core.js" defer></script>
     <script src="app.js" defer></script>
   </body>
 </html>
